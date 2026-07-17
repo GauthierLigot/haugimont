@@ -36,6 +36,13 @@ fpalette<- c("#E69F00", "#999999", "#009E73", "#D55E00", "#CC79A7","#333399") # 
 ```
 
 ```{r}
+#overide LEV value
+# soil_expectation_value  <-  10000 # soil expectation value 
+# unfortunately this does not update the indicator values of the theoretical scenarios (already computed)
+```
+
+
+```{r}
 tmp_purchase<-estate_purchase%>%
   select(block, purchaseYear = year)
 
