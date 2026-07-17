@@ -1,0 +1,70 @@
+---
+title: "Explore cashflows in nominal values"
+author: "Gauthier Ligot"
+date: "2026-07-06"
+output: html_document
+---
+
+```{r setup, echo=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+load("data/3_calcRevenues_en.Rdata") # cashflow data
+library(tidyverse)
+```
+
+## Some explanations 
+
+I tried to get back the nominal values of all cashflows. 
+
+- The nominal value of hunting and fishing leases, subsidies, timber sales, road works, vehicle purchase, and taxes could be retreived.
+- The nominal value of the initial forest value cannot be estimated from estate purchase. The forest block were purchased before or after 1992 - when pro silva silviculture started to be applied and when the forest inventory was carried out.
+- The nominal value of wages couldn't be retreived. We can either apply a correction using the consumer price index or use partial historic data.
+- The nominal value of the standing trees could be computed using different price lists for 1992, 1995, 2009, 2019. This would require quite some work while real price haven't changed much (see attached pdf). Right now, the nominal value is estimated using the consumer price index.
+
+### Wages
+#### Method 1
+I got the actual cost of the staff in 2023. 
+* 1 FT Ingeneer cost 90210 €/year (the previous manager was older and his wage was higher). 64% of that cost corresponds to the gross annual salary.
+* 1 FT technician cost 96859 €/year (he is at the end of his carreer). 61% of that cost corresponds to the gross annual salary.
+
+I assumed reasonnably that the ingeneer and the technician work 20% and 60% of their time for the forest management, respectively. This led to an annual cost of 66781 € or about 224 €/ha/year (real value with reference year being 2019). Nominal values could then be approximated  using the consumer price index.
+
+In the following, I use this first method.
+
+#### Method 2
+I tried to get historic wage data and from the university of Namur, from my university (University of Liège) and from public Belgian datasets. I couldn't obtain data from the universities. 
+
+I managed to get public data of gross annual salary from 1999 to 2022 for a technician and a "specialist" working on environmental resource management. The evolution of these wages followed quite well the consumer price index over that period. I then used the consummer price index to extrapolate the data back to 1992. To get the total cost for the university, I multiplied the gross annual salary by 1.6 assuming that the gross annual salary equals 62.5% of the total cost (see method 1)
+
+* 1 FT Ingeneer gross salary was (in 2019) 60036 €/year, and cost approx. 96057 €/year.
+* 1 FT technician gross salary was (in 2019) 43932 €/year, and cost approx. 70291 €/year.
+
+With this method, the cost of the staff is lower :  approx. 61386 €/year or 207 €/ha/year (2019). 
+
+It wouldn't be too difficult to use this method and update all results. This would increase the estimates of hardwood forest management profitability...
+
+
+## Nominal cashflows per forest block
+
+```{r echo=TRUE}
+g1<-cashflows%>%
+  sf::st_drop_geometry() %>%
+  filter(year>=1992)%>%
+  filter(! category %in% c("Estate purchase","Standing value"))%>%
+  ggplot(aes(x=year,y=net_nominal_ha,fill=category))+
+  geom_bar(stat = "identity")+facet_wrap(~block_name)+
+  ylab("Nominal value (€/ha)")
+g1
+```
+
+## Cashflows in Euro 2019 per forest block
+
+```{r echo=TRUE}
+g1<-cashflows%>%
+  sf::st_drop_geometry() %>%
+  filter(year>=1992)%>%
+  filter(! category %in% c("Estate purchase","Standing value"))%>%
+  ggplot(aes(x=year,y=net_2019_ha,fill=category))+
+  geom_bar(stat = "identity")+facet_wrap(~block_name)+
+  ylab("2019 value (€/ha)")
+g1
+```

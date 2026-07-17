@@ -1,0 +1,41 @@
+---
+title: "Exploring timber sales"
+author: "Gauthier Ligot"
+date: "2026-07-07"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DT)
+load("data/sales.Rdata")
+```
+
+# Timber sales
+For each sales, I retrieved information about the total volume sold and the purchase price. The volume was estimated by the forest managers using different allometric relationships and methods (even visual estimates for firewood). Timber unit price should then be analyzed with caution.
+
+It is difficult to compare these observation with the price list used in the manuscript as I do not have information about tree size and trees of different species are usually mixed within one sale.
+
+## Descriptive statistics
+```{r}
+sales%>%
+  filter(volume > 5 & year >= 1992)%>% # I discarded sales of very small volume of wood (could be erroneous data or not very significant data)
+  group_by(category)%>%
+  summarise(n=n(),
+            mean_price_2019_m3= round(mean(real_price_2019_m3),digits=1),
+            sd_price_2019_m3= round(sd(real_price_2019_m3),digits=1))%>%
+  datatable(caption = "Number of sales, Mean and standard deviation of timber unit price are given per sale catrory. The prices are expressed in real values (€ 2019).",)
+```
+
+## Temporal evolution
+We can't see a clear temporal evolution. Nothing statistically significant.
+```{r}
+sales%>%
+  filter(volume > 5 & year >= 1992)%>%
+  ggplot(aes(y=real_price_2019_m3,x=year,col=category))+
+  geom_point()#+stat_smooth(,method = "lm")
+```
+

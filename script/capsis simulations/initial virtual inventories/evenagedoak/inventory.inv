@@ -1,0 +1,15 @@
+standName = evenaged
+inventoryDate = 2036
+standArea_ha = 1
+altitude = 300
+classWidth = 10
+naturalRegion = 5
+soilWaterHoldingCapacity_mm = 83
+polygon = MULTIPOLYGON (((0 0,100 0,100 100,0 100)))
+
+
+#sp	girthClass	n
+CH	25	7
+CH	35	535
+CH	45	899
+CH	55	59

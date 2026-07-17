@@ -1,0 +1,75 @@
+# Keywords
+stage0_nbRetentionTreesHa = 0.0
+stage0_distanceToClosestRetentionWeight = 0.0
+stage0_dbhWeight = 0.0
+stage0_tremWeight = 0.0
+stage0_ecologicalScoreWeight = 0.0
+stage0_speciesRarityWeight = 0.0
+stage0_valueWeight = 0.0
+stage0_randomWeight = 0.0
+stage1_nbFocalTreesHa = 0.0
+stage1_distanceToClosestFocalWeight = 0.0
+stage1_dbhWeight = 0.0
+stage1_tremWeight = 0.0
+stage1_ecologicalScoreWeight = 0.0
+stage1_speciesRarityWeight = 0.0
+stage1_volumeLueWeight = 0.0
+stage1_valueWeight = 0.0
+stage1_valueLueWeight = 0.0
+stage1_valueIncrementRateWeight = 0.0
+stage1_saplingDensityAroundWeight = 0.0
+stage1_slendernessWeight = 0.0
+stage1_crownRatioWeight = 0.0
+stage1_randomWeight = 0.0
+stage2_cutFocalTrees = false
+stage2_maxPercentageOfGCut = 25.0
+stage2_finalG = 14.5
+stage2_percentageOfThinningInGCut = 50.0
+stage2a_matureWeight = 60.0
+stage2a_dbhWeight = 20.0
+stage2a_tremWeight = 0.0
+stage2a_ecologicalScoreWeight = 0.0
+stage2a_speciesRarityWeight = 0.0
+stage2a_volumeLueWeight = 0.0
+stage2a_valueWeight = 0.0
+stage2a_valueLueWeight = 0.0
+stage2a_valueIncrementRateWeight = 0.0
+stage2a_volumeRelativeIncrementWeight = 0.0
+stage2a_saplingDensityAroundWeight = 0.0
+stage2a_distanceToClosestHarvestWeight = 0.0
+stage2a_randomWeight = 20.0
+stage2b_distanceToClosestFocalWeight = 0.0
+stage2b_dbhWeight = -10.0
+stage2b_tremWeight = 0.0
+stage2b_ecologicalScoreWeight = 0.0
+stage2b_speciesRarityWeight = 0.0
+stage2b_volumeLueWeight = 0.0
+stage2b_valueWeight = 0.0
+stage2b_valueLueWeight = 0.0
+stage2b_valueIncrementRateWeight = 0.0
+stage2b_saplingDensityAroundWeight = 0.0
+stage2b_distanceToClosestCutWeight = 0.0
+stage2b_distanceToClosestHarvestWeight = 0.0
+stage2b_randomWeight = 40.0
+stage3_percentageOfRecentDeadToBeHarvested = 100.0
+
+# Species record section
+# species	stage0_weights	stage1_weights	stage2a_weights	stage2a_speciesMatureDbh	stage2b_weights
+PS	0.0	0.0	0.0	40.0	0.0
+CH	0.0	0.0	0.0	65.0	0.0
+MR	0.0	0.0	0.0	40.0	0.0
+AL	0.0	0.0	0.0	30.0	0.0
+DO	0.0	0.0	0.0	50.0	30.0
+EP	0.0	0.0	0.0	30.0	50.0
+FR	0.0	0.0	0.0	40.0	0.0
+BO	0.0	0.0	0.0	30.0	10.0
+MZ	0.0	0.0	0.0	50.0	0.0
+ES	0.0	0.0	0.0	40.0	0.0
+CR	0.0	0.0	0.0	40.0	10.0
+CT	0.0	0.0	0.0	40.0	10.0
+PE	0.0	0.0	0.0	40.0	0.0
+SO	0.0	0.0	0.0	30.0	0.0
+HE	0.0	0.0	0.0	50.0	50.0
+RO	0.0	0.0	0.0	40.0	50.0
+CA	0.0	0.0	0.0	40.0	50.0
+FD	0.0	0.0	0.0	40.0	0.0

@@ -1,0 +1,1229 @@
+---
+title: "Supplementary data and script : Financial assessment of 30 years of continuous
+  cover forestry in a 300-ha mixed oak-dominated forest estate"
+author: "Gauthier Ligot"
+date: "2026-04-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(mapview)
+library(DT)
+library(knitr)
+# library(xlsx)
+library(ggpubr)
+# library(readxl)
+library(ggradar)
+library(RColorBrewer)
+library(openxlsx2)
+```
+
+# Results from field observation
+
+## Data import
+```{r}
+source("script/tirf.R") # a function to compute the internal rate of return
+source("script/myGGplotConfigs.R") # settings for personnalized ggplot layouts
+load("data/1_CalcData_en.Rdata")  # inventory data
+load("data/3_calcRevenues_en.Rdata") # economic data
+source("script/commonParameters.R") # economic parameter
+fpalette<- c("#E69F00", "#999999", "#009E73", "#D55E00", "#CC79A7","#333399") # chosen colors for the plots
+```
+
+```{r}
+tmp_purchase<-estate_purchase%>%
+  select(block, purchaseYear = year)
+
+keydates<-inventory_year%>%
+  filter(year >= 1992)%>%
+  group_by(block)%>%
+  filter(year == min(year))%>%
+  rename(firstInventory = year)%>%
+  left_join(tmp_purchase, by=join_by(block))
+```
+
+Figure 1 : site map
+```{r}
+mapview(block_sf,zcol = "block",layer.name = 'forest blocks', label = "block")
+```
+
+## Initial and final stand tables
+```{r}
+#### initial situation ----
+t1<-dendro_block%>%
+  as_tibble()%>%
+  group_by(block)%>%
+  filter(year>= 1992)%>%
+  filter(year == min(year))%>%
+  select(block, year, nha, gha, vha, vcha, ghapc_oak, ghapc_frax, ghapc_conif)%>%
+  mutate_at(c("ghapc_oak","ghapc_frax","ghapc_conif"), function(x) {x *100})%>%
+  ungroup()%>%
+  mutate_if(is.numeric, ~round(.,digits=1))
+
+colnames(t1) <- c("Block", "Year","Density (/ha)","Basal area (m²/ha)", "Standing volume (m³/ha)", 
+                  "Standing value (€/ha)", "%Oak", "%Ash", "%Conif.")
+
+# --- openxlsx2 version ---
+wb <- wb_workbook()
+wb$add_worksheet("t1_dendro")
+wb$add_data("t1_dendro", t1, row_names = FALSE, na = "")
+
+#### Final situation ----
+t2<-dendro_block%>%
+  as_tibble()%>%
+  group_by(block)%>%
+  filter(year>= 1992)%>%
+  filter(year == max(year))%>%
+  select(block, year, nha, gha, vha, vcha, ghapc_oak, ghapc_frax, ghapc_conif)%>%
+  mutate_at(c("ghapc_oak","ghapc_frax","ghapc_conif"), function(x) {x *100})%>%
+  ungroup()%>%
+  mutate_if(is.numeric, ~round(.,digits=1))
+
+colnames(t2) <- c("Block", "Year","Density (/ha)","Basal area (m²/ha)", "Standing volume (m³/ha)", 
+                  "Standing value (€/ha)", "%Oak", "%Ash", "%Conif.")
+
+wb$add_worksheet("tf_dendro")
+wb$add_data("tf_dendro", t2, row_names = FALSE, na = "")
+```
+
+weigthed meand of % basal area of coniferous species 
+```{r}
+tt<-dendro_block%>%
+  as_tibble()%>%
+  group_by(block)%>%
+  filter(year>= 1992)%>%
+  filter(year == min(year))%>%
+  select(block, block_area_ha, year, nha, gha, vha, vcha, ghapc_oak, ghapc_frax, ghapc_conif)
+weighted.mean(x=tt$ghapc_conif,w=as.numeric(tt$block_area_ha))
+```
+
+Evolution of the stand structure in each block
+```{r}
+tx<-dendro_block%>%
+  filter(year >= 1992)%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  summarise(vha_i = first(vha),
+            vha_f = last(vha),
+            vcha_i = first(vcha),
+            vcha_f = last(vcha),
+            n = last(year) - first(year))%>%
+  mutate(tx_vha = (vha_f/vha_i)^(1/n)-1,
+         tx_vcha = (vcha_f/vcha_i)^(1/n)-1)
+
+# The palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+g1<-struct_block%>%
+  ggplot(aes(y=gha,x=circ/pi,fill=species_group_en))+geom_bar(stat="identity")+
+  facet_grid(block_name ~ year)+labs(fill = "Species group")+
+  theme(legend.position="top")+xlab("Diameter class (cm)")+ylab("Basal area (m²/ha)")+
+  scale_fill_manual(values=cbPalette)
+
+ggsave(file="fig/structure.png", plot=g1, width=10, height=8)
+ggsave(file="fig/structure.svg", plot=g1, width=10, height=8)
+```
+
+Harvest tables
+```{r}
+periodsDico<-dendro_block%>%
+  as_tibble()%>%
+  select(block,year)%>%
+  distinct()%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  mutate(year_i = year,
+         year_f = lead(year),
+         period = row_number())%>%
+  select(-year)%>%
+  filter(!is.na(year_f))%>%
+  group_by(block, period, year_i, year_f)%>%
+  nest()%>%
+  mutate(year = map2(.x = year_i, .y = year_f, ~ .x:(.y-1)))%>%
+  ungroup()%>%
+  select(block, period, year, year_i, year_f)%>%
+  unnest(cols = c(block, year, year_i, year_f))
+
+harvested<-cashflows%>%
+  filter(year >= 1992)%>%
+  filter(category == "Timber sales")%>%
+  group_by(block,year)%>%
+  summarise(volume = sum(volume),
+            net_2019 = sum(net_2019))%>%
+  left_join(periodsDico, by = join_by(block, year))%>%
+  group_by(block)%>%
+  mutate(year_f = ifelse(is.na(year_f),min(year_i,na.rm=T),year_f))%>%
+  group_by(block,year_f)%>%
+  summarise(volume = sum(volume),
+            net_2019 = sum(net_2019))
+
+t2a<-dendro_block%>%
+  as_tibble()%>%
+  select(-geom)%>%
+  select(block,block,block_area_ha,year,nha,gha,vha)%>%
+  left_join(harvested,join_by(block,year==year_f))%>%
+  mutate(vha_harvested = volume/block_area_ha,
+         vha_harvested = ifelse(is.na(vha_harvested),0,vha_harvested))%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  mutate(year_i = lag(year),
+         year_f = year,
+         vha_i = lag(vha),
+         vha_f = vha,
+         vha_change = (vha_f - vha_i)/(year_f -year_i),
+         vha_harvested_yr = vha_harvested / (year_f - year_i),
+         vha_yield = vha_change +  vha_harvested_yr,
+         n = row_number())%>%
+  ungroup()%>%
+  arrange(block,year)%>%
+  filter(year_i >= 1992 & n > 1)
+
+t2b<-t2a%>%
+  group_by(block_area_ha,block)%>%
+  summarise(vha_change = mean(vha_change),
+            vha_harvested_yr = mean(vha_harvested_yr),
+            vha_yield = mean(vha_yield))
+
+# lines to compute weighted averages
+# weighted.mean(x=t2b$vha_change,w=as.numeric(t2b$block_area_ha))
+# weighted.mean(x=t2b$vha_harvested_yr,w=as.numeric(t2b$block_area_ha))
+# weighted.mean(x=t2b$vha_yield,w=as.numeric(t2b$block_area_ha))
+
+t2<-t2a%>%
+  select(block, year_i, year_f, vha_i, vha_f, vha_harvested_yr, vha_yield)%>%
+  mutate(tx_arvested = vha_harvested_yr/vha_yield)%>%
+  mutate_at(c("vha_i","vha_f","vha_harvested_yr","vha_yield"), ~round(.,digits=1))%>%
+  mutate(tx_arvested = round(tx_arvested,digits=2))
+
+colnames(t2) <- c("Block","Year_i","Year_f","Vol_i (m³/ha)","Vol_f (m³/ha)","Vol_cut (m³/ha/an)","Yield (m³/ha/an)","Harvest rate")
+
+wb$add_worksheet("t2_vha")
+wb$add_data("t2_vha", t2, row_names = FALSE, na = "")
+```
+
+Yield tables
+```{r}
+t2a<-dendro_block%>%
+  filter(year >= 1992 )%>%
+  as_tibble()%>%
+  select(-geom)%>%
+  select(block,block,block_area_ha,year,nha,gha,vha, vcha)%>%
+  left_join(harvested,join_by(block,year==year_f))%>%
+  mutate(vha_harvested = volume/block_area_ha,
+         vha_harvested = ifelse(is.na(vha_harvested),0,vha_harvested),
+         vm_harvested = net_2019/block_area_ha,
+         vm_harvested = ifelse(is.na(vm_harvested),0,vm_harvested))%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  summarise(year_i = first(year),
+         year_f = last(year),
+         vha_i = first(vha), # volume
+         vha_f = last(vha),
+         vm_i = first(vcha), # stumpage value
+         vm_f= last(vcha),
+         vha_harvested = sum(vha_harvested),
+         vm_harvested = sum(vm_harvested))%>%
+  mutate(vha_change = (vha_f - vha_i)/(year_f -year_i),
+         vha_harvested_yr = vha_harvested / (year_f - year_i),
+         vha_yield = vha_change +  vha_harvested_yr,
+         tx_harvested_vol = vha_harvested_yr/vha_yield,
+         vm_change = (vm_f - vm_i)/(year_f -year_i),
+         vm_harvested_yr = vm_harvested / (year_f - year_i),
+         vm_yield = vm_change +  vm_harvested_yr,
+         tx_harvested_vm = vm_harvested_yr/vm_yield)
+
+wb$add_worksheet("t2_vha_global")
+wb$add_data(sheet = "t2_vha_global", t2a, row_names = FALSE, na = "")
+```
+
+Turnover periods
+```{r}
+t2a%>%
+  mutate(harvestToCapital_volume = vha_harvested/vha_i,
+         harvestToCapital_value =  vm_harvested/vm_i,
+         harvestAndIncrementToCapital_value =  (vm_harvested+(vm_f - vm_i))/vm_i)%>%
+  select(block,harvestToCapital_volume,harvestToCapital_value,harvestAndIncrementToCapital_value )
+```
+
+## Expenses
+Expenses plot
+```{r}
+g2<-cashflows%>%
+  filter(!is.na(net_2019_ha) & net_2019_ha<0)%>%
+  filter(category != "Estate purchase")%>%
+  filter(category != "Standing value")%>%
+  ggplot(aes(y=net_2019_ha,x=year,fill=category))+facet_wrap(~block_name)+
+  geom_bar(stat = "identity")+ylab("Expenses (€ 2019/ha)")+
+  theme(axis.title.x = element_blank(),legend.position = "top") + labs(fill = element_text("Expense category"))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear),  col="darkgrey")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory) , col="darkgrey",lty=2)+
+  scale_fill_manual(values=fpalette)
+
+ggsave(file="fig/depense.png", g2, width=8, height=6)
+```
+
+```{r}
+dm<-cashflows%>%
+  filter(year >= 1992)%>%
+  filter(!is.na(net_2019_ha) & net_2019_ha<0)%>%
+  filter(category != "Estate purchase")%>%
+  filter(category != "Standing value")%>%
+  left_join(select(estate_purchase,
+                   block,purchaseYear = year), 
+            by = join_by(block))%>%
+  mutate(period = 2019 - ifelse(purchaseYear>1992,purchaseYear,1992)  + 1)%>%
+  group_by(block, block_name, category, period)%>%
+  summarise(
+    annual_net_2019_ha = sum(net_2019_ha)/period[1] )%>%
+  mutate(isIncome = "Expense")
+
+dm%>%
+  group_by(block)%>%
+  summarise(annual_net_2019_ha = sum(annual_net_2019_ha))
+
+# fpalette<- c("#999999", "#E69F00", "#009E73", "#D55E00", "#CC79A7") #if more colors needed
+fpalette<- rev(c("#999999", "#009E93", "#CC99A7","#9999FF"))
+
+g3outflows<-dm%>%
+  mutate(category = factor(category, levels = 
+                                c("Vehicle","Tax","Road","Staff"),
+                              order=T))%>%
+  ggplot(aes(y=-annual_net_2019_ha,x=block_name,fill=category))+
+  geom_bar(stat = "identity")+ylab("Mean annual cost (€/ha/year)")+
+  theme(axis.title.x = element_blank(),legend.position = "top") + 
+  scale_fill_manual(values=fpalette, name ="")+
+  scale_y_continuous(limits = c(0, 550))
+
+ggsave(file="fig/meanexpense.png", g3outflows, width=6, height=4)
+```
+
+Explore expenses in different tables
+```{r}
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  filter(category == "Staff")
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category %in% c("Staff"))%>%
+  arrange(category, prop)
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category %in% c("Road"))%>%
+  arrange(category, prop)
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category %in% c("Tax"))%>%
+  arrange(category, prop)
+
+dm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category %in% c("Vehicle", "Tax"))%>%
+  arrange(category, prop)
+```
+
+Mean expense per category at the estate level
+```{r}
+areatot<-as.numeric(sum(block_sf$block_area_ha))
+
+mean.expenses<-dm%>%
+  left_join(as_tibble(block_sf),by = join_by(block))%>%
+  group_by(category)%>%
+  summarise(montant_estate = sum(annual_net_2019_ha * as.numeric(block_area_ha) / areatot) * -1)
+
+fpalette<- rev(c("#999999", "#009E93", "#CC99A7","#9999FF"))
+mean.expenses.plot<-ggplot(data=mean.expenses,aes(x="",y=montant_estate, fill = category))+
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+  scale_fill_manual(values=fpalette)
+  
+ggsave(file="fig/mean_expenses_plot.svg", mean.expenses.plot, width=4, height=4)
+
+wb$add_worksheet("mean_expenses")
+wb$add_data(sheet = "mean_expenses", mean.expenses, row_names = FALSE, na = "")
+```
+
+# Revenues
+Income through time and per category
+```{r}
+fpalette<- c("#CC79A7", "#56B4E9", "#E69F00",  "#D55E00",  "#009E73")
+
+g3<-cashflows%>%
+  mutate(category_2 = ifelse(category == "Timber sales",
+                            ifelse(product == "Firewood",
+                                   "Firewood","Log"),
+                            category))%>%
+  filter(!is.na(net_2019_ha) & net_2019_ha>0)%>%
+  filter(category != "Standing value")%>%
+  mutate(category_2 = factor(category_2, levels = c("Subisdy","Fishing","Hunting","Firewood","Log"), order=T))%>%
+  ggplot(aes(y=net_2019_ha,x=year,fill=category_2))+facet_wrap(~block_name)+
+  geom_bar(stat = "identity")+ylab("Mean income (€ 2019/ha)")+
+  theme(axis.title.x = element_blank(),legend.position = "top") + 
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="darkgrey")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkgrey",lty=2)+
+  scale_fill_manual(values=fpalette, name= "Income category")
+
+ggsave(file="fig/mean_income.png", g3, width=8, height=6)
+```
+
+Explore incomes
+```{r}
+rm<- cashflows%>%
+  mutate(category_2 = ifelse(category == "Timber sales",
+                            ifelse(product == "Firewood",
+                                   "Firewood","Log"),
+                            category))%>%
+  filter(!is.na(net_2019_ha) & net_2019_ha>0)%>%
+  filter(category != "Standing value")%>%
+  left_join(select(estate_purchase,
+                   block,purchaseYear = year), 
+            by = join_by(block))%>%  
+  mutate(period = 2019 - ifelse(purchaseYear>1992,purchaseYear,1992)  + 1)%>%
+  group_by(block, block_name, category_2)%>%
+  summarise(annual_net_2019_ha = sum(net_2019_ha)/period[1])%>%
+  mutate(isIncome = "Income")
+```
+
+Share of sawwood and firewood sales among incomes
+```{r}
+rm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category_2 %in% c("Firewood","Log"))%>%
+  arrange(category_2, prop)
+```
+
+Share of total wood sales among incomes
+```{r}
+rm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category_2 %in% c("Firewood","Log"))%>%
+  arrange(category_2, prop)%>%
+  group_by(block)%>%
+  summarise(prop = sum(prop),
+            timber_tot = sum(annual_net_2019_ha))
+```
+
+Share of firewood and sawwood among total wood sales
+```{r}
+rm%>%
+  group_by(block)%>%
+  filter(category_2 %in% c("Firewood","Log"))%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  arrange(category_2, prop)
+```
+
+total incomes related to wood sales
+```{r}
+rm%>%
+  filter(category_2 %in% c("Firewood","Log"))%>%
+  arrange(category_2)%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+```
+
+Total income related to hunting and fishing
+```{r}
+rm%>%
+  filter(category_2 %in% c("Hunting"))%>%
+  arrange(category_2)%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+```
+
+Share of hunting in total incomes
+```{r}
+rm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category_2 %in% c("Hunting"))%>%
+  arrange(category_2, prop)
+```
+
+
+Share of fishing in total incomes
+```{r}
+rm%>%
+  filter(category_2 %in% c("Fishing"))%>%
+  arrange(category_2)%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+
+rm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category_2 %in% c("Fishing"))%>%
+  arrange(category_2, prop)
+```
+
+Subsidies
+```{r}
+rm%>%
+  filter(category_2 %in% c("Subisdy"))%>%
+  arrange(category_2)%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+```
+
+Share of subsidies among total revenue
+```{r}
+rm%>%
+  group_by(block)%>%
+  mutate(tot = sum(annual_net_2019_ha))%>%
+  ungroup()%>%
+  mutate(prop = annual_net_2019_ha/tot)%>%
+  filter(category_2 %in% c("Subsidy"))%>%
+  arrange(category_2, prop)
+```
+
+## Net revenues
+```{r}
+t9_bilan<-dm%>%
+  bind_rows(rm)%>%
+  ungroup()%>%
+  select(block, category_2, period, value = annual_net_2019_ha, isIncome)
+
+wb$add_worksheet("t9_bilan")
+wb$add_data(sheet = "t9_bilan", t9_bilan, row_names = FALSE, na = "")
+
+t10_bilanTot<-t9_bilan%>%
+  group_by(block,isIncome)%>%
+  summarise(val = sum(value))%>%
+  pivot_wider(id_cols = block, names_from = isIncome, values_from = val)%>%
+  mutate(rd = Income/Expense,
+         net_revenue = Income + Expense)
+
+wb$add_worksheet("t10_bilanTot")
+wb$add_data(sheet = "t10_bilanTot", t10_bilanTot, row_names = FALSE, na = "")
+```
+
+
+```{r}
+g4income<-rm%>%
+  mutate(category_2 = factor(category_2, levels = c("Subsidy","Fishing","Hunting","Firewood","Log"), order=T))%>%
+  ggplot(aes(y=annual_net_2019_ha,x=block_name,fill=category_2))+
+  geom_bar(stat = "identity")+ylab("Mean annual revenue (€/ha/year)")+
+  theme(axis.title.x = element_blank(),legend.position = "top") +
+  scale_fill_manual(values=fpalette, name ="")+
+  scale_y_continuous(limits = c(0, 550))
+
+ggsave(file="fig/mean_income.png", g4income, width=7, height=4)
+```
+
+
+```{r}
+flows<-ggarrange(g3outflows, g4income, labels = c("A", "B"), ncol = 2, nrow = 1,
+                 common.legend = FALSE)
+
+ggsave(flows,file = "fig/flows.png", width=10, height = 5)
+```
+
+```{r}
+tmp<-dm%>%
+  ungroup()%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+
+net<-rm%>%
+  bind_rows(dm)%>%
+  group_by(block)%>%
+  summarise(tot = sum(annual_net_2019_ha))
+```
+
+## Profitability indicators
+### Net present value
+```{r}
+sev_as_cashflow<- filter(cashflows, category == "Standing value")%>%
+  mutate(category = "SEV", # add soil expectation value in the cashflows
+         net_2019_ha  = ifelse(net_2019<0, -soil_expectation_value, soil_expectation_value),
+         net_2019 = net_2019_ha * as.numeric(block_area_ha))
+
+t3<-cashflows%>%
+  bind_rows(sev_as_cashflow)%>%
+  mutate(category = ifelse(category == "SEV", "Capital opportunity cost", category))%>%
+  mutate(category_2 = ifelse(category == "Timber sales",
+                               ifelse(product == "Firewood",
+                                      "Firewood","Log"),
+                               category))%>%
+  select(-geom)%>%
+  filter(category != "Estate purchase")%>%
+  left_join(select(estate_purchase,
+                   block,purchaseYear = year), 
+            by = join_by(block))%>% 
+  mutate(initialYear = ifelse(purchaseYear>1992,purchaseYear,1992))%>%
+  filter((category == "Vehicle" | year >= initialYear) & net_2019_ha != 0)%>%
+  group_by(block,block_name)%>%
+  mutate(year = ifelse(category == "Standing value" & net_2019_ha<0,initialYear,year))%>%
+  mutate(year2 = year-initialYear)%>% 
+  mutate(va = net_2019_ha/(1+r)^(year-initialYear))%>%
+  group_by(block, block_name, category, category_2)%>%
+  summarise(van_ha = sum(va))%>%
+  ungroup()%>%
+  select(-block)%>%
+  pivot_wider(names_from = block_name, values_from = van_ha,values_fill = 0)%>%
+  arrange(`Block 2`)%>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))%>%
+  mutate(across(where(is.numeric), ~round(.x, digits = 0)))
+
+wb$add_worksheet("t3_npv")
+wb$add_data(sheet = "t3_npv", t3, row_names = FALSE, na = "")
+```
+
+
+### Internal rate of return  
+```{r}
+get_irr<-function(df){
+  years<-df[["year2"]]
+  nets<-df[["net_2019_ha"]]
+  tir<-TIRF(year = years, net = nets, fonds = fonds, r_step = 0.0005)
+  return(tir)
+}
+
+t4_all<-cashflows%>%
+  select(-geom)%>%
+  filter(category != "Estate purchase")%>%
+    left_join(select(estate_purchase, block,purchaseYear = year),
+              by = join_by(block))%>%
+  mutate(initialYear = ifelse(purchaseYear>1992,purchaseYear,1992))%>%
+  filter((category == "vehicle" | year >= initialYear) & net_2019_ha != 0)%>%
+  group_by(block)%>%
+  mutate(year = ifelse(category == "Standing value" & net_2019_ha<0,initialYear,year))%>%
+  mutate(year2 = year-initialYear)%>% 
+  select(block, year, year2, initialYear, net_2019_ha, category)%>%
+  nest()%>%
+  mutate(tir = map_dbl(data,get_irr),
+         n = map_dbl(data, ~ max(.$year2))) %>%
+  select(block, n, tir)%>%
+  mutate(TIR_nominal = (tir+1)*(1+inflation_rate)-1)
+
+wb$add_worksheet("t4_tir_all")
+wb$add_data(sheet = "t4_tir_all", t4_all, row_names = FALSE, na = "")
+```
+
+
+```{r}
+t4_comp<-cashflows%>%
+  select(-geom)%>%
+  filter(category != "Estate purchase")%>%
+    filter(!category %in% c("Road","vehicle","Hunting","Fishing","Subsidy","Tax"))%>%
+    left_join(select(estate_purchase,    
+                     block,purchaseYear = year),   
+              by = join_by(block))%>%
+  mutate(initialYear = ifelse(purchaseYear>1992,purchaseYear,1992))%>%
+  filter((category == "vehicle" | year >= initialYear) & net_2019_ha != 0)%>%
+  group_by(block)%>%
+  mutate(year = ifelse(category == "Standing value" & net_2019_ha<0,initialYear,year))%>%
+  mutate(year2 = year-initialYear)%>% 
+  select(block, year, year2, initialYear, net_2019_ha, category)%>%
+  nest()%>%
+  mutate(tir = map_dbl(data,get_irr),
+         n = map_dbl(data, ~ max(.$year2))) %>%
+  select(block, n, tir)%>%
+  mutate(TIR_nominal = (tir+1)*(1+inflation_rate)-1)
+
+wb$add_worksheet("t4_tir_comp")
+wb$add_data(sheet = "t4_tir_comp", t4_comp, row_names = FALSE, na = "")
+```
+
+Create a summary table that can be merged with simulation results
+```{r}
+# outflow that can be compared to simulation results (only staff, major outflow anyway)
+tmp_d<-dm%>%
+  left_join(dico_block,by=join_by(block))%>%
+  filter(category == "Staff")%>%
+  group_by(block)%>%
+  summarise(dm = sum(annual_net_2019_ha))%>%
+  select(block, dm)
+
+tmp_r<-rm%>%
+  left_join(dico_block,by=join_by(block))%>%
+  filter(category_2 %in% c("Log","Firewood"))%>%
+  group_by(block)%>%
+  summarise(rm = sum(annual_net_2019_ha))%>%
+  select(block, rm)
+
+tmp_npv1<-t3%>%
+  filter(category_2 %in% c("Staff","Firewood","Log"))%>%
+  select(-category,-category_2)%>%
+  summarise_all(.funs = sum)%>%
+  pivot_longer(everything(), cols = , names_to = "block", values_to = "npv1")%>%
+  mutate(block = as.numeric(str_sub(block, start = -1, end = -1)))
+
+tmp_npv4<-t3%>%
+  filter(category_2 %in% c("Staff","Firewood","Log","Capital opportunity cost","Standing value"))%>%
+  select(-category,-category_2)%>%
+  summarise_all(.funs = sum)%>%
+  pivot_longer(everything(), cols = , names_to = "block", values_to = "npv4")%>%
+  mutate(block = as.numeric(str_sub(block, start = -1, end = -1)))
+
+tmp_irr<- t4_comp%>%
+  ungroup()%>%
+  select(block, irr5 = tir)
+
+sumryTable<-t2a%>%
+  mutate(nb_year = year_f - year_i,
+         vt = vha_harvested,
+         vm = vt / nb_year)%>%
+  select(block, nb_year, vm, vt, yield = vha_yield)%>%
+  left_join(tmp_d, by = join_by(block))%>%
+  mutate(dt =dm*nb_year)%>%
+  left_join(tmp_r, by = join_by(block))%>%
+  mutate(rt = rm*nb_year)%>%
+  left_join(tmp_npv1, by = join_by(block))%>%
+  left_join(tmp_npv4, by = join_by(block))%>%
+  left_join(tmp_irr, by = join_by(block))%>%
+  mutate(npv_inf = npv1 * (1+discount_rate)^nb_year/(((1+discount_rate)^nb_year-1)))%>%
+  mutate(source = "Field data")
+```
+
+
+# Simulation results
+
+## Data import
+```{r}
+
+```
+
+
+### Evaluating simulations ------------------
+# load simulation data
+
+
+# simple functions
+totalIncome<-function(net){
+  mi<-sum(ifelse(net>0,net,0))
+  return(mi)
+}
+totalExpense<-function(net){
+  mi<-sum(ifelse(net<0,net,0))
+  return(mi)
+}
+meanIncome<-function(net, rotation){
+  mi<-sum(ifelse(net>0,net,0))/rotation
+  return(mi)
+  }
+meanExpense<-function(net, rotation){
+  mi<-sum(ifelse(net<0,net,0))/rotation
+  return(mi)
+}
+volumeProduction<-function(volume, rotation){
+  v<-sum(volume, na.rm = T)/rotation
+  return(v)
+}
+
+dico_hazard<-tibble(label = c(paste0("DOU",1:3),
+                              paste0("SPR",1:3),
+                              paste0("OAK",1:3),
+                              paste0("OAK_SHLTR",1:3),
+                              paste0("MIX",1:3)),
+                    hazard = c("Hazard-free","Growth decline","Rege. difficulties",
+                               "Hazard-free","Bark beetles","Rege. difficulties",
+                               "Hazard-free","Growth decline","Rege. difficulties",
+                               "Hazard-free","Growth decline","Rege. difficulties",
+                               "Hazard-free","Growth decline","Ash dieback"))
+
+t5<-DOU%>%
+  bind_rows(SPR)%>%
+  bind_rows(OAK)%>%
+  bind_rows(MIX)%>%
+  mutate(rm = map2_dbl(billbook,rotation, ~ meanIncome(.x$net,.y)))%>%
+  mutate(dm = map2_dbl(billbook,rotation, ~ meanExpense(.x$net,.y)))%>%
+  mutate(dt = map_dbl(billbook, ~ totalExpense(.x$net)))%>%
+  mutate(rt = map_dbl(billbook, ~ totalIncome(.x$net)))%>%
+  mutate(vm = map2_dbl(billbook,rotation, ~ volumeProduction(.x$volume, .y)))%>%
+  mutate(irr5 = ifelse(is.na(irr4),irr3,irr4))%>%
+  mutate(nominal_irr = (irr5+1)*(1+inflation_rate)-1)%>%
+  mutate(npv_inf = van1 * (1+discount_rate)^rotation / ((1+discount_rate)^rotation - 1))%>%
+  left_join(dico_hazard, by = join_by(label))%>%
+  select(scenario = label, species, hazard, nb_year = rotation, 
+         rt, dt, rm, dm, vm, van1, van4, npv_inf, irr5, nominal_irr)
+
+write.xlsx(as.data.frame(t5), sheetName = "t5_comparScenarios",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+t1<-t5%>%
+  select(scenario, nb_year, rt, rm, dt, dm,vm,van1,van4,npv_inf,irr5)%>%
+  bind_rows(sumryTable)%>%
+  mutate(rt=rt/1000,
+         rm =rm/1000,
+          dt = -dt/1000,
+         dm = -dm/1000,
+         van1 = van1/1000,
+         van4 = van4/1000,
+         npv_inf = npv_inf/1000,
+         irr5 = irr5 * 100)%>%
+  mutate(subscenario = str_sub(scenario, start = -1, end = -1))%>%
+  mutate(label = ifelse(is.na(source), str_sub(scenario, start = 1, end=-2), source))%>%
+  # mutate_at(vars(-scenario,-subscenario), rescale_gl)%>%
+  pivot_longer(cols = nb_year:irr5,names_to = "var")%>%
+  mutate(label = factor(label, levels = c("DOU","SPR","OAK","OAK_SHLTR","MIX","Field data"), ordered= T))
+
+t2_errorbar<-t1%>%
+  filter(label != "Field data")%>%
+  group_by(label,var)%>%
+  summarise(min = min(value),
+            max = max(value))
+
+# variable = "dm"
+
+mySimulationPlot<-function(variable, variable_name){
+  mycolors<-brewer.pal(6, "Dark2")
+
+  g<-ggplot()+
+    geom_point(data=filter(t1,(is.na(subscenario)  & var == variable) | (subscenario == "1" & var == variable)), 
+               aes(x=label,y=value, col=label),
+               size=2)+
+    geom_errorbar(data = filter(t2_errorbar,var == variable), 
+                  aes(x=label, y = max, ymin=min, ymax=max, col=label),width=0)+
+    ylab(variable_name) +
+    xlab(NULL) +
+    # ggtitle(variable_name)+
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "none",  # removed here, combined later
+      axis.title.y = element_text(size = 8),
+      axis.text.y = element_text(size = 7),
+      axis.text.x = element_text(size = 7,angle = 90,hjust = 1),
+      panel.grid.major.x = element_line(color = "grey85"),
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(color = "grey60", fill = NA, linewidth = 0.4),
+      plot.margin = margin(2, 2, 2, 2)  
+    )+
+    scale_color_manual(values = mycolors)    # theme(axis.title.y = element_blank(), 
+    #       legend.position = "none",
+    #       panel.grid.major.x = element_line(color = "grey85"))
+  
+  return(g)
+  
+}
+
+
+g1<-mySimulationPlot("nb_year", "Study period (years)")
+g2<-mySimulationPlot("vm", "Mean annual harvested volume (m³/ha/year)")
+g3<-mySimulationPlot("rt", "Total inflow over the study period (k€/ha)")
+g4<-mySimulationPlot("rm", "Mean annual inflow (k€/ha/year)")
+g5<-mySimulationPlot("dt", "Total outflow over the study period (k€/ha)")
+g6<-mySimulationPlot("dm", "Mean annual outflow (k€/ha/year)")
+g7<-mySimulationPlot("van1", expression(NPV[n] ~ " excl. captial opportunity cost (k€/ha)"))
+g8<-mySimulationPlot("van4", expression(NPV[n] ~ " incl. captial opportunity cost (k€/ha)"))
+g9<-mySimulationPlot("npv_inf", expression(NPV[infinity] ~ " incl. capital opportunity cost (k€/ha)"))
+g10<-mySimulationPlot("irr5", "Internal rate of return (%)")
+
+gall<-ggarrange(g1,g2,g3,g4,g5,g6,g7,g8,g9,g10, ncol = 5, nrow = 2)
+ggsave(gall, filename = "fig/indicators.png", width = 8, height = 7)
+
+
+
+
+ggplot(filter(t1,subscenario == "1"), 
+              aes(x=var,y=value, col=scenario))+
+  coord_flip()+
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_line(color = "grey85")
+  ) +
+  # alternating background stripes by using a rectangle layer
+  geom_rect(
+    data = data.frame(
+      var = unique(t1$var),
+      xmin = seq(0.5, length(unique(t1$var)) - 0.5, by = 2),
+      xmax = seq(1.5, length(unique(t1$var)) + 0.5, by = 2)
+    ),
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "grey92",
+    alpha = 0.5
+  )+
+  geom_point(position=dodge)+
+  geom_errorbar(data = t2_errorbar, aes(x=var, y = max, ymin=min, ymax=max, col=scenario),
+                position=dodge, width=0)
+ggradar(radar_dat0,
+        group.point.size = 1)
+
+
+
+
+# VAN of reference scenarios
+b1<-douglas_results%>%
+  select(rotation,Essence = species,Scénario=label,billbook)%>%
+  unnest(cols = c(billbook))
+
+t6<-spruce_results%>%
+  select(rotation,Essence = species,Scénario=label,billbook)%>%
+  unnest(cols = c(billbook))%>%
+  bind_rows(b1)%>%
+  mutate(npv = net/(1+r)^age)%>%
+  group_by(Essence, Scénario, isIncome)%>%
+  summarise(npv  = sum(npv))%>%
+  mutate(categ  = ifelse(isIncome, "recette", "depense"))%>%
+  select(-isIncome)%>%
+  pivot_wider(names_from = c("categ"), values_from  = npv, names_sep="_")
+
+t7<-t6%>%
+  left_join(t5,by = join_by(Essence, Scénario))
+names(t7)<-c("Essence","Scénario","VAN dépense","VAN recette","Révolution (Nb. années)", "Recettes moyennes", "Dépenses moyennes", "TIR", "TIR nominal")
+
+write.xlsx(as.data.frame(t6), sheetName = "t6_van_ref",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+write.xlsx(as.data.frame(t7), sheetName = "t7_indic_ref",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+# Annexe
+## Mercuriale des prix
+chauffage<-data.frame(circ = unique(mercuriale$circ), species_group = "Firewood", price_2019 = 15)
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","black")
+mercuriale_plot<-mercuriale%>%
+  bind_rows(chauffage)%>%
+  left_join(dico_species, by = join_by(species_group))%>%
+  mutate(species_group_en = ifelse(is.na(species_group_en), "Firewood", species_group_en))%>%
+  mutate(species_group = factor(species_group_en , levels=c(sort(dico_species$species_group_en),"Firewood"), order=T))%>%
+  ggplot(aes(y=price_2019,x=circ/pi, col =  species_group))+geom_line()+
+  xlab("Diameter (cm)")+ylab("Price (€/m³)")+
+  theme(legend.title = element_blank())+
+  scale_color_manual(values=cbPalette)
+mercuriale_plot
+
+ggsave(file="fig/mercuriale_en.png", mercuriale_plot, width=6, height=4)
+
+
+
+
+## Subsides
+subside<-cashflows%>%
+  filter(category == "Subsides")%>%
+  select(Massif = block, Année = year, Montant = net_2019)%>% ## annual_net_2019_ha !!!!
+  mutate(Montant = round(Montant,digits=1))
+
+write.xlsx(as.data.frame(subside), sheetName = "t6_subside",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+## Description des 5 massifs
+t7_achat<-achat%>%
+  mutate(montant = - montant)%>%
+  left_join(block_sf,by = join_by(block))%>%
+  mutate(block_area_ha = as.numeric(block_area_ha))%>%
+  select(-geom)
+
+write.xlsx(as.data.frame(t7_achat), sheetName = "t7_achat",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+t8<-dendro_block%>%
+  as_tibble()%>%
+  select(block, year, nha, gha, vha, vcha, ghapc_oak, ghapc_conif)%>%
+  mutate_at(c("ghapc_oak","ghapc_conif"), function(x) {x *100})%>%
+  mutate_if(is.numeric, ~round(.,digits=1))
+
+names(t8)<-c("Massif", "Année","NHA (/ha)","GHA (m²/ha)", "VHA (m³/ha)", "VC (€/ha)", "%Chênes", "%Résineux")
+
+write.xlsx(as.data.frame(t8), sheetName = "t8_inv",file = "fig/tables.xlsx",
+           col.names = T, row.names = F, showNA = F, append = T)
+
+
+#"Evolution de la surface terrière par zone d'inventaire (en gris) et en moyenne à l'échelle des massifs forestiers (en noir)."}
+keydates<-keydates%>%
+  left_join(dico_block,by=join_by(block))
+dendro_block<-dendro_block%>%
+  left_join(dico_block,by=join_by(block))
+
+evo1<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=gha))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("Basal area (m²/ha)")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo1,file = "fig/gha.png", width=10, height = 4)
+
+
+# "Evolution du volume block-fort tige par zone d'inventaire (en gris) et en moyenne à l'échelle des massifs forestiers (en noir)."}
+evo2<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=vha))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("Volume (m³/ha)")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo2,file = "fig/vha.png", width=10, height = 4)
+
+
+# "Evolution de la valeur marchande par zone d'inventaire (en gris) et en moyenne à l'échelle des massifs forestiers (en noir)."}
+evo3<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=vcha))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("Value (€/ha)")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo3,file = "fig/vcha.png", width=10, height = 4)
+
+
+#"Evolution du nombre d'espèce par zone d'inventaire (en gris) et à l'échelle des massifs forestiers (en noir)."}
+evo4<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=n.sp))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("Nb of species")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo4,file = "fig/nsp.png", width=10, height = 4)
+
+
+#
+evo5<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=ghapc_oak))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("%oak basal area")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo5,file = "fig/pgha_chene.png", width=10, height = 4)
+
+
+# "Evolution de la valeur marchande/volume par zone d'inventaire (en gris) et en moyenne à l'échelle des massifs forestiers (en noir)."}
+evo6<-dendroByZone%>%
+  left_join(dico_block,by=join_by(block))%>%
+  ggplot(aes(x=year,y=vcha/vha))+geom_line(col="grey", aes(group=inventoryZone))+
+  geom_line(data=dendro_block)+
+  facet_grid(~block_name)+xlab("Year")+ylab("Value / Volume (€/m³)")+
+  theme(legend.position = "none")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))+
+  geom_vline(data=keydates, aes(xintercept = purchaseYear), col="orange")+
+  geom_vline(data=keydates, aes(xintercept = firstInventory), col="darkorange",lty=2)
+
+ggsave(evo6,file = "fig/vcha_V.png", width=10, height = 4)
+
+
+# 
+evo7a<-dendro_block%>%
+  ggplot(aes(x=year,y=vha))+ geom_line(aes(col=as.factor(block),group=block))+
+  geom_point(aes(col=as.factor(block)))+
+  xlab("Year")+ylab("Standing volume (m³/ha)")+labs(col="Block")+
+  theme(legend.position = "top")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))
+
+evo7b<-dendro_block%>%
+  ggplot(aes(x=year,y=vcha/vha))+ geom_line(aes(col=as.factor(block),group=block))+
+  geom_point(aes(col=as.factor(block)))+
+  xlab("Year")+ylab("Standing value / Standing volume (€/m³)")+
+  theme(legend.position = "top")+labs(col="Block")+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1,vjust = 1))
+
+evo7<-ggarrange(evo7a, evo7b, labels = c("A", "B"), ncol = 2, nrow = 1,
+                common.legend = TRUE, legend = "bottom")
+
+ggsave(evo7,file = "fig/mean_vcha_V.png", width=10, height = 5)
+
+## Temps de rotation du capital (en volume et en valeur)
+
+intial_capital<-dendro_block%>%
+  as_tibble()%>%
+  group_by(block)%>%
+  filter(year>= 1992)%>%
+  filter(year == min(year))%>%
+  select(block, initial_year = year, initial_vha = vha, initial_vm = vcha)
+
+final_capital<-dendro_block%>%
+  as_tibble()%>%
+  group_by(block)%>%
+  filter(year == 2019)%>%
+  select(block, final_year = year, final_vha = vha, final_vm = vcha)
+
+cashflows%>%
+  filter(category == "Ventes de block")%>%
+  filter(year >= 1992)%>%
+  filter(block == "Haugimont")%>%
+  summarise(volume_tot = sum(volume)/unique(block_area_ha))
+
+tt<-cashflows%>%
+  filter(category == "Ventes de block")%>%
+  filter(year >= 1992)%>%
+  mutate(volume_ha = as.numeric(volume/block_area_ha))%>%
+  left_join(intial_capital, by = join_by(block))%>%
+  left_join(final_capital, by = join_by(block))%>%
+  group_by(block,year,initial_year,initial_vha,initial_vm,final_year,final_vha,final_vm)%>%
+  summarise(volume_ha = sum(volume_ha),
+            income_ha = sum(net_2019_ha))%>%
+  group_by(block,initial_year,initial_vha,initial_vm,final_year,final_vha,final_vm)%>%
+  arrange(year)%>%
+  mutate(vol_cum = cumsum(volume_ha),
+         val_cum = cumsum(income_ha))
+
+ggplot(data=tt, aes(y=val_cum, x=year, col=block))+geom_line()+
+  geom_hline(aes(yintercept = initial_vm, col=block))
+ggplot(data=tt, aes(y=vol_cum, x=year, col=block))+geom_line()+
+  geom_hline(aes(yintercept = initial_vha, col=block))
+
+tt%>%filter(year==2018)%>%
+  mutate(tx_vol = vol_cum/initial_vha,
+         tx_val = val_cum/initial_vm,
+          tx_rotation_vol = (vol_cum + (final_vha - initial_vha))/initial_vha,
+         tx_rotation_val = (val_cum + (final_vm - initial_vm))/initial_vm) 
+         
+
+TempsRotationVolume<-tt%>%
+  filter(vol_cum > initial_vha)%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  slice(1)%>%
+  mutate(TR_voume = year - initial_year)
+  
+TempsRotationValue<-tt%>%
+  filter(val_cum > initial_vm)%>%
+  group_by(block)%>%
+  arrange(year)%>%
+  slice(1)%>%
+  mutate(TR_voume = year - initial_year)
+
+
+## Exporter les échéanciers
+
+scenarios<-douglas_results%>%
+  bind_rows(spruce_results)
+
+# scenarios%>%
+#   select(billbook)%>%
+#   unnest(cols = c(billbook))%>%
+#   select(label)%>%
+#   as.data.frame()%>%
+#   distinct()%>%
+#   write.xlsx(sheetName = name,file = "fig/dico_label.xlsx",
+#              col.names = T, row.names = F, showNA = F, append = T)
+
+dico_label<-read.xlsx(file = "fig/dico_label.xlsx",sheetIndex = 1)
+
+for(i in 1:nrow(scenarios)){
+  name<-paste(scenarios[i,"species"],"--", scenarios[i,"label"])
+  print(name)
+  bb<-scenarios[i,]%>%
+    select(billbook)%>%
+    unnest(cols = c(billbook))%>%
+    select(-isIncome)%>%
+    mutate_at(c("value","volume","net"), ~round(.,digits=0))%>%
+    left_join(dico_label,by = join_by(label))%>%
+    filter(label != "Gestion")%>%
+    select(label_en, age, value, volume, net)%>%
+    as.data.frame()
+  names(bb)<-c("Label", "Year","Price (€/ha)","Volume (m³)", "Net (€/ha)")
+  
+  write.xlsx(bb, sheetName = name,file = "fig/tables.xlsx",
+             col.names = T, row.names = F, showNA = F, append = T)
+  
+  }
+
+### unit price for the timber sales
+dico_produit <- read_excel(path="2_processing/dico_produit_edited.xlsx")
+
+price_indices <- read_excel(path="1_data/fromGDD/IPC-Coefficients.xlsx",sheet = "Feuil2")%>%
+  select(year = Année, price_coef = 'Coefficient 2019')  
+
+
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7","black")
+
+sales<-read_xlsx(path="1_data/fromGDD/ventes.xlsx",sheet = "ventes_détail")%>%
+  select(block= block, year = Année, vol_m3 = Vol_m3,prix_courant, produit = type_block, produit2 = essence,parcelle)%>%
+  left_join(price_indices, by= c("year"))%>%
+  filter(produit != "prime")%>%
+  mutate(block = str_to_title(block))%>%
+  mutate(prix_2019 = prix_courant*price_coef)%>%
+  mutate(prix_m3 = prix_2019/vol_m3)%>%
+  left_join(dico_produit, by = join_by(produit2))%>%
+  mutate(species_group_en = ifelse(species_group_en == "Coniferous", "Coniferous", "Broadleaved"))%>%
+  mutate(species_group_en = ifelse(produit == "chauffage", "Firewood", species_group_en))%>%
+  mutate(species_group_en = factor(species_group_en))%>%
+  filter(vol_m3 > 50 & prix_m3 > 0) 
+
+# to make the dico  
+# data.frame(produit2 = unique(sales$produit2))%>%
+#   write.xlsx(file = "2_processing/dico_produit.xlsx")
+
+get_box_stats <- function(y) {
+  return(data.frame(
+    y = 1,
+    label = paste(
+      "Count =", length(y), "\n",
+      "Mean =", round(mean(y), 2), "\n",
+      "Median =", round(median(y), 2), "\n"
+    )
+  ))
+}
+
+sales_plot<-ggplot(sales, aes(y=prix_m3,x=species_group_en))+
+  geom_boxplot(fill = "grey") + 
+  ylab("Sale price (€/m³)")+
+  theme(legend.position = "none", axis.title.x=element_blank())+
+  scale_y_continuous(trans='log',breaks = c(10,50,100,150,200,300,500,1000),limits = c(1, 300)) + 
+  stat_summary(fun.data = get_box_stats, geom = "text", hjust = 0.5, vjust = 0.9)
+  
+mercuriale_plot2 <- mercuriale_plot + 
+  scale_y_continuous(trans='log',breaks = c(10,50,100,150,200,300,500,1000),limits = c(1, 300))
+  
+timber_prices<-ggpubr::ggarrange(mercuriale_plot2, sales_plot,  
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1,widths = c(3,2))
+
+ggsave(timber_prices,file = "fig/timber prices.png", width=10, height = 5)
+
+``` 
+
+```{r}
+#save workbook
+
+wb$save("data/tables.xlsx")
+
+```
+

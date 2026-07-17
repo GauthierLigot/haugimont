@@ -1,0 +1,31 @@
+TODO 02-06-2026
+
+08-06-2026 - j'ai commencer à modifier le script 3_calc_revenues.R mais il faudrait essayer de retrouver les montants originaux des subsides. Je me suis arêté ligne 45-46 ! Il faut le disque dur externe.
+
+
+L'objectif du papier est d'illustrer les difficultés de l'évaluation de forêt gérée à couvert continu, mixed and hardwood
+
+suite à la vision avec John, il faut :
+
+- There are too many theoretical scenarios. Consider simpliying this.
+- Can you collect timber price data for every years? 1992-2019? Yes. Such information can be found (in nominal values). See 9_PRIX DES BOIS. But this would require quite some work and I'm not convinced this will be useful
+
+DONE
+- revoir la table 5 : les valeurs de NPV et NP2 et NPV inf semblent incohérents - DONE - inverted column names
+
+- produire pour chaque bloc un tableau des dépenses et des recettes en valeur norminale. Utiliser des données de salaire historique pour différents grade..
+- produire des graphiques de ces flux
+- transmettre ces données à John
+- a partir de ces données calculer le net asset value ou IRR
+- ce calcul dépend de la valorisation du capital final -> à discuter. Comparer la valeur initiale du capitale et la valeur estimée
+- ces données permettrait de comparer cet investissements avec d'autres investissement financier et de faire cette analyses au cours du temps
+
+- Supll table 2 : price and net -> same value. this is confusing
+
+- Check funding research call Wallonie-Quebec . Maybe one in july-August 2026?
+- have a look to funding opportunities to work together
+
+- Check sales data. Do we have information of timber volume per category and size? NON. Juste l'essence et la catégorie (oeuvre ou chauffage)
+
+FOR FUTURE STUDIES - PERSPECTIVES
+- Could you provide more information about stand structure and the stand scale? A future paper could adress the impact on cash flows of converting the forest from one system to another one (ex. using Waffle simulator...)
