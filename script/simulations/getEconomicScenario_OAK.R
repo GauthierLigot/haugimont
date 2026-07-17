@@ -43,7 +43,7 @@ for(rege in c("clear-cut","shelterwood")){
     # si = 27
     # cdom = 180
     for(si in c(24,27)){
-      for(cdom in c(180, 200)){  #220, 240,260,280)){ #bigger CDOM were never optimum #TODO add cdom = 160
+      for(cdom in c(180, 200, 220, 240)){  #220, 240,260,280)){ #bigger CDOM were never optimum #TODO add cdom = 160
         
         print(paste("SI = ",si," : cdom = ",cdom))
         

@@ -1,0 +1,131 @@
+---
+title: "Sensitivity analyses on land expectation value."
+author: "Gauthier Ligot"
+date: "2026-07-17"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(sf)
+library(mapview)
+library(DT)
+library(knitr)
+library(ggpubr)
+library(RColorBrewer)
+library(openxlsx2)
+library(kableExtra)
+```
+
+# loading data as in paper_result_v7
+```{r}
+source("../script/tirf.R") # a function to compute the internal rate of return
+source("../script/myGGplotConfigs.R") # settings for personnalized ggplot layouts
+load("../data/1_CalcData_en.Rdata")  # inventory data
+load("../data/3_calcRevenues_en.Rdata") # economic data
+source("../script/commonParameters.R") # economic parameter
+fpalette<- c("#E69F00", "#999999", "#009E73", "#D55E00", "#CC79A7","#333399") # chosen colors for the plots
+```
+
+# Sensitivity analysis one one forest bloc (block 2)
+I computed NPV2 with $L$ ranging from 1000 to 15000. 
+
+
+```{r echo = TRUE}
+# L <- 5000
+L_step <- 1000
+L_min <- 1000
+L_max <- 15000
+selected_block <- 2 # I selected abitrarily the largest block
+```
+
+```{r include = FALSE}
+options(dplyr.summarise.inform = FALSE)
+
+# Build the appropriate billbook
+billbook<-cashflows%>%
+  filter(block == selected_block)%>% # the selected block
+  mutate(category_2 = ifelse(category == "Timber sales",
+                             ifelse(product == "Firewood",
+                                    "Firewood","Log"),
+                             category))%>%
+  filter(category_2 %in% c("Staff","Firewood","Log","Standing value"))%>% # keep the same cash flows as in table 5
+  select(-geom)%>%
+  filter(category != "Estate purchase")%>%
+  left_join(select(estate_purchase,
+                   block,purchaseYear = year), 
+            by = join_by(block))%>% 
+  mutate(initialYear = ifelse(purchaseYear>1992,purchaseYear,1992))%>% 
+  filter(((category == "Vehicle" | year >= initialYear) & net_2019_ha != 0))%>% # cashflows of 0€ or outside the study period
+  # group_by(block,block_name)%>% # not needed, here we work for only one block
+  mutate(year = ifelse(category == "Standing value" & net_2019_ha<0,initialYear,year))%>%
+  mutate(year2 = year-initialYear)%>% 
+  arrange(year2)%>%
+  mutate(pv = net_2019_ha/(1+r)^(year2))%>% # present value
+  select(block, category = category_2, year = year2, net_2019_ha, pv_2019_ha = pv)
+```
+
+```{r echo=TRUE}
+block_output<-tibble()
+for(L in seq(L_min,L_max,L_step)){
+  
+  n<-max(billbook$year)
+  npv2 <- sum(billbook$pv_2019_ha) + L/(1+r)^n - L
+  irr<-TIRF(year = billbook$year, net = billbook$net_2019_ha, fonds = L, r_step = 0.0001) #This takes time !
+  
+  block_output<-block_output%>%
+    bind_rows(tibble(label = "Block 2", L=L,npv2=npv2,irr=irr))
+}
+```
+
+
+It is quite obvious that $L$ affects directly and linearly NPV2. We knew it looking at its formula...
+
+```{r echo=FALSE}
+ggplot(block_output,aes(x=L,y=npv2))+geom_line()+geom_point()+xlab("Land expectation value")+ylab("NPV2")
+```
+
+It is quite obvious that $L$ affects directly and non-linearly IRR. Not new neither...
+```{r echo = FALSE}
+ggplot(block_output,aes(x=L,y=irr))+geom_line()+geom_point()+xlab("Land expectation value")+ylab("IRR")
+```
+
+# Sensitivity analysis for the theoretical scenarion of spruce plantation (SPR1)
+```{r echo=TRUE}
+load("../data/simulations/SPR.rdata")
+
+spr_billbook<-SPR%>%
+  filter(label == "SPR1")%>%
+  pull(billbook)%>%
+  .[[1]]%>%
+  select(category, year, net_2019_ha = net)%>%
+  mutate(pv_2019_ha = net_2019_ha/(1+r)^year)
+
+spr_tmp<-tibble()
+
+spr_output<-tibble()
+for(L in seq(L_min,L_max,L_step)){
+  
+  n<-max(spr_billbook$year)
+  npv2 <- sum(spr_billbook$pv_2019_ha) + L/(1+r)^n - L
+  irr<-TIRF(year = spr_billbook$year, net = spr_billbook$net_2019_ha, fonds = L, r_step = 0.0001) #This takes time !
+  
+  spr_output<-spr_output%>%
+    bind_rows(tibble(label="SPR1", L=L,npv2=npv2,irr=irr))
+}
+```
+
+```{r echo=FALSE}
+dat<-block_output%>%
+  bind_rows(spr_output)
+
+g1<-ggplot(dat,aes(x=L,y=npv2,col=label))+geom_point()+geom_line()+xlab("Land expectation value")+ylab("NPV2")
+g2<-ggplot(dat,aes(x=L,y=irr,col=label))+geom_point()+geom_line()+xlab("Land expectation value")+ylab("IRR")
+
+ggarrange(g1, g2, labels = c("A", "B"), ncol = 2, nrow = 1,common.legend = TRUE)
+```
+
+
